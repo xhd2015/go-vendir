@@ -70,12 +70,22 @@ func (c *Rewriter) RewriteFile(file string) (string, error) {
 
 func (c *Rewriter) RewriteCode(code string) (string, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", code, parser.ImportsOnly)
+	file, err := parser.ParseFile(fset, "", code, parser.ImportsOnly|parser.ParseComments)
 	if err != nil {
 		return "", err
 	}
 
+	const GO_GENERATE = "//go:" + "generate "
 	edit := goedit.New(fset, code)
+	// all go generate will be removed
+	for _, cmt := range file.Comments {
+		for _, c := range cmt.List {
+			if strings.HasPrefix(c.Text, GO_GENERATE) {
+				edit.Replace(c.Pos(), c.Pos()+token.Pos(len(GO_GENERATE)), "// removed go:"+"generate ")
+			}
+		}
+	}
+
 	for _, imp := range file.Imports {
 		pkg, err := strconv.Unquote(imp.Path.Value)
 		if err != nil {
