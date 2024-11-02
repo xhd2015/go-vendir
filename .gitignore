@@ -1,0 +1,7 @@
+.vscode
+.idea
+
+.DS_Store
+
+/testdata/example/src/vendor
+/testdata/example/internal/third_party_vendir
