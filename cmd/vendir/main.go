@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xhd2015/xgo/support/fileutil"
+	"github.com/xhd2015/xgo/support/pattern"
+
 	"github.com/xhd2015/go-vendir/pkg/rewrite"
 	"github.com/xhd2015/xgo/support/cmd"
 	"github.com/xhd2015/xgo/support/filecopy"
@@ -36,9 +39,11 @@ Arguments:
   <dir> must be a dir containing a go.mod and a vendor dir.
 
 Options:
-  -v, --verbose   show verbose information
-      --update    run 'go mod tidy' and 'go mod vendor' in <dir> prior to create vendor
-  -f, --force     force remove <target_vendor_dir> and make a new one
+  -v, --verbose         show verbose information
+      --update          run 'go mod tidy' and 'go mod vendor' in <dir> prior to create vendor
+  -f, --force           force remove <target_vendor_dir> and make a new one
+      --incldue FILE    include only a set of files,FILE can be directory or pattern
+	  --exclude FILE    extende a set of files
 
 Example:
   $ vendir create ./some-pkg/internal/src ./some-pkg/internal/third_party_vendir
@@ -83,6 +88,8 @@ func createVendor(args []string) error {
 	var verbose bool
 	var update bool
 	var force bool
+	var exclude []string
+	var include []string
 	n := len(args)
 	for i := 0; i < n; i++ {
 		if args[i] == "--update" {
@@ -91,6 +98,22 @@ func createVendor(args []string) error {
 		}
 		if args[i] == "-f" || args[i] == "--force" {
 			force = true
+			continue
+		}
+		if args[i] == "--include" {
+			if i+1 >= n {
+				return fmt.Errorf("%s requires arg", args[i])
+			}
+			include = append(include, args[i+1])
+			i++
+			continue
+		}
+		if args[i] == "--exclude" {
+			if i+1 >= n {
+				return fmt.Errorf("%s requires arg", args[i])
+			}
+			exclude = append(exclude, args[i+1])
+			i++
 			continue
 		}
 		if args[i] == "-v" || args[i] == "--verbose" {
@@ -185,22 +208,23 @@ func createVendor(args []string) error {
 		return err
 	}
 
+	filter := NewFileFilter(include, exclude)
 	// traverse all go files, and rewrite
-	return filepath.Walk(targetVendorDir, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
+	return fileutil.WalkRelative(targetVendorDir, func(path string, relPath string, d fs.DirEntry) error {
+		if d.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if !filter.MatchFile(relPath) {
 			return nil
 		}
 		newCode, err := rw.RewriteFile(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		return os.WriteFile(path, []byte(newCode), info.Mode())
+		return os.WriteFile(path, []byte(newCode), 0755)
 	})
 }
 
@@ -282,4 +306,54 @@ func rewritePath(args []string) error {
 
 	fmt.Println(rw.RewritePath(path))
 	return nil
+}
+
+// package filter
+// copied from github.com/xhd2015/lines-annotation/path/filter
+
+// FileFilter
+type FileFilter struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+
+	includePatterns pattern.Patterns
+	excludePatterns pattern.Patterns
+}
+
+func NewFileFilter(include []string, exclude []string) *FileFilter {
+	return &FileFilter{
+		Include:         include,
+		Exclude:         exclude,
+		includePatterns: CompilePatterns(include),
+		excludePatterns: CompilePatterns(exclude),
+	}
+}
+
+func CompilePatterns(patterns []string) pattern.Patterns {
+	list := make([]*pattern.Pattern, 0, len(patterns))
+	for _, p := range patterns {
+		ptn := pattern.CompilePattern(p)
+		list = append(list, ptn)
+	}
+	return list
+}
+
+// MatchFile checks whether patterns of this filter
+// match given *file*.
+// NOTE: the target `file` must be a file, not a
+// directory
+func (c *FileFilter) MatchFile(file string) bool {
+	hasInclude := len(c.Include) > 0
+	if hasInclude {
+		if !c.includePatterns.MatchAnyPrefix(file) {
+			return false
+		}
+	}
+	hasExclude := len(c.Exclude) > 0
+	if hasExclude {
+		if c.excludePatterns.MatchAnyPrefix(file) {
+			return false
+		}
+	}
+	return true
 }

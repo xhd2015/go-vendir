@@ -70,7 +70,9 @@ func (c *Rewriter) RewriteFile(file string) (string, error) {
 
 func (c *Rewriter) RewriteCode(code string) (string, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", code, parser.ImportsOnly|parser.ParseComments)
+
+	// parser.ImportsOnly|parser.ParseComments
+	file, err := parser.ParseFile(fset, "", code, parser.ParseComments)
 	if err != nil {
 		return "", err
 	}
