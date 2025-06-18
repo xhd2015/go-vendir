@@ -45,6 +45,9 @@ func (c *Rewriter) RewritePath(path string) string {
 	if path == "" {
 		return ""
 	}
+	if path == "C" {
+		return "C"
+	}
 	if !replaceablePath(path) {
 		return path
 	}
